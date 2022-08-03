@@ -21,7 +21,10 @@ struct mpkObject {
 struct mgsVFSObject {
   char gap0[8];
   char archiveName[16];
-  char gap1[10664];
+  char gap1[10208];
+  uint32_t bndrhn;
+  uint32_t bndrid;
+  char gap2[448];
 };
 
 struct mgsFileLoader {

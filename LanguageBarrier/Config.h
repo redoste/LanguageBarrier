@@ -12,6 +12,7 @@
 
 namespace lb {
 CONFIG_GLOBAL json config;
+CONFIG_GLOBAL json rawConfig;
 void configInit();
 const std::string configGetGameName();
 const std::string configGetPatchName();

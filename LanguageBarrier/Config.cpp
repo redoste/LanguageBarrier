@@ -9,7 +9,6 @@
 #include "lbjson.h"
 
 json patchdef;
-json rawConfig;
 
 namespace lb {
 void configLoadFiles();

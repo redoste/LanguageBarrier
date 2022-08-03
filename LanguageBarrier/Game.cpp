@@ -20,6 +20,7 @@
 #include "TextRendering.h"
 #include "CustomInputRNE.h"
 #include "CustomInputRND.h"
+#include "TwipoSynchroRNE.h"
 
 typedef int(__cdecl* EarlyInitProc)(int unk0, int unk1);
 static EarlyInitProc gameExeEarlyInit = NULL;
@@ -567,6 +568,10 @@ int __cdecl earlyInitHook(int unk0, int unk1) {
     if (config["patch"].count("RNDMouseInput") == 1 &&
         config["patch"]["RNDMouseInput"].get<bool>() == true) {
       rnd::customInputInit();
+    }
+
+    if (rawConfig.count("twipoSynchroListenAddress") == 1) {
+      rne::twipoSynchro::twipoSynchroInit(rawConfig["twipoSynchroListenAddress"].get<std::string>());
     }
 
     if (config["patch"].count("RNENameTagFix") == 1 &&

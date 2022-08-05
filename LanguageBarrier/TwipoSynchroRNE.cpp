@@ -53,6 +53,7 @@ static void failRuntime(const char *message, int line, bool with_error, int erro
 }
 
 enum ScrWorkEnum {
+  LR_DATE = 1029,
   SW_TWIPOTOTALANS = 2010,
   SW_TWIPOCURTW = 6459,
   SW_TWIPOMODE = 6460,
@@ -62,7 +63,7 @@ enum ScrWorkEnum {
 
 struct tweep_tab_entry_t {
   uint32_t tweepId;
-  uint32_t postSate;
+  uint32_t postDate;
 };
 static tweep_tab_entry_t **TwipoTweepsInTabs = NULL;
 static int *TwipoTweepCountInTabs = NULL;
@@ -122,7 +123,7 @@ static bool startServer(std::string listenAddress) {
   return true;
 }
 
-static bool sendAddTweep(int tweepId) {
+static bool sendAddTweep(int tweepId, int postDate) {
   tweep_t* tweep = &TwipoTweeps[tweepId];
   int tab = TwipoAuthorTabs[tweep->authorId];
   int pfp = gameExeTwipoGetPFP(tweep->authorId);
@@ -137,19 +138,18 @@ static bool sendAddTweep(int tweepId) {
   struct {
     uint32_t messageType;
     uint32_t tweepId;
-    uint16_t tab;
+    uint8_t tab;
+    uint8_t repliesAmount;
     uint16_t pfp;
-    uint16_t differentDay;
-    uint16_t repliesAmount;
+    uint32_t postDate;
   } messageHeader = {
     0x54574550,
     (uint32_t)tweepId,
-    (uint16_t)tab,
+    (uint8_t)tab,
+    (uint8_t)(canBeReplied ? repliesAmount : 0),
     (uint16_t)pfp,
-    0,
-    (uint16_t)(canBeReplied ? repliesAmount : 0),
+    (uint32_t)postDate,
   };
-  // TODO : handle different day
 #pragma pack(pop)
   DWORD writtenBytes;
   CHECK_WIN32("WriteFile addTweep messageHeader", WriteFile(game2server, &messageHeader, sizeof(messageHeader), &writtenBytes, NULL) && writtenBytes == sizeof(messageHeader));
@@ -219,6 +219,21 @@ static bool sendClearTweeps() {
   return true;
 }
 
+static bool sendDate() {
+#pragma pack(push, 1)
+  struct {
+    uint32_t messageType;
+    uint32_t date;
+  } message = {
+      0x44415445,
+      (uint32_t)gameExeScrWork[LR_DATE],
+  };
+#pragma pack(pop)
+  DWORD writtenBytes;
+  CHECK_WIN32("WriteFile sendDate", WriteFile(game2server, &message, sizeof(message), &writtenBytes, NULL) && writtenBytes == sizeof(message));
+  return true;
+}
+
 typedef void(__cdecl *AddTweepProc)(int);
 static AddTweepProc gameExeAddTweep = NULL;
 static AddTweepProc gameExeAddTweepReal = NULL;
@@ -243,7 +258,7 @@ void __cdecl addTweepHook(int tweepId) {
     ret = sendClearTweeps();
   }
   if (ret) {
-    sendAddTweep(tweepId);
+    sendAddTweep(tweepId, gameExeScrWork[LR_DATE]);
   }
 
   gameExeAddTweepReal(tweepId);
@@ -258,19 +273,23 @@ void *__cdecl loadTwipoFromSaveHook(void *save) {
     return gameExeLoadTwipoFromSaveReal(save);
   }
   if (WaitForSingleObject(tweepMutex, INFINITE) != WAIT_OBJECT_0) {
-    fail_runtime("WaitForSingleObject loadTwipoFromSaveHook", __LINE__, true, GetLastError());
+    failRuntime("WaitForSingleObject loadTwipoFromSaveHook", __LINE__, true, GetLastError());
     return gameExeLoadTwipoFromSaveReal(save);
   }
 
   void *ret = gameExeLoadTwipoFromSaveReal(save);
 
-  bool no_error = sendClearTweeps();
-  for (int tab = 0; tab < 4 && no_error; tab++) {
-    for (int tweep = 0; tweep < TwipoTweepCountInTabs[tab] && no_error; tweep++) {
-      int tweepId = TwipoTweepsInTabs[tab][tweep].tweepId;
-      no_error &= sendAddTweep(tweepId);
-      no_error &= sendSetReplyPossible(tweepId);
+  bool noError = sendClearTweeps();
+  for (int tab = 0; tab < 4 && noError; tab++) {
+    for (int tweep = 0; tweep < TwipoTweepCountInTabs[tab] && noError; tweep++) {
+      tweep_tab_entry_t *entry = &TwipoTweepsInTabs[tab][tweep];
+      noError &= sendAddTweep(entry->tweepId, entry->postDate);
+      noError &= sendSetReplyPossible(entry->tweepId);
     }
+  }
+
+  if (noError) {
+    sendDate();
   }
 
   ReleaseMutex(tweepMutex);
@@ -325,6 +344,25 @@ void __cdecl updateAchievementsHook(int achievementType) {
     }
   }
   gameExeUpdateAchievementsReal(achievementType);
+}
+
+typedef void(__cdecl *Sc3EvalProc)(void *, int *);
+static Sc3EvalProc gameExeSc3Eval = NULL;
+static Sc3EvalProc gameExeSc3EvalReal = NULL;
+void __cdecl sc3EvalHook(void *thread, int *result) {
+  static int previousDate = 0;
+
+  gameExeSc3EvalReal(thread, result);
+
+  if (game2server && gameExeScrWork[LR_DATE] != previousDate) {
+    if (WaitForSingleObject(tweepMutex, INFINITE) != WAIT_OBJECT_0) {
+      failRuntime("WaitForSingleObject sc3EvalHook", __LINE__, true, GetLastError());
+      return;
+    }
+    sendDate();
+    previousDate = gameExeScrWork[LR_DATE];
+    ReleaseMutex(tweepMutex);
+  }
 }
 
 DWORD WINAPI replyThread(LPVOID lpParameter) {
@@ -445,6 +483,7 @@ bool twipoSynchroInit(std::string listenAddress) {
   ASSERT_INIT(scanCreateEnableHook("game", "MarkTweepReplyPossible", (uintptr_t *)&gameExeMarkTweepReplyPossible, (LPVOID *)&markTweepReplyPossibleHook, (LPVOID *)&gameExeMarkTweepReplyPossibleReal));
   ASSERT_INIT(scanCreateEnableHook("game", "MarkTweepReplyNotPossible", (uintptr_t *)&gameExeMarkTweepReplyNotPossible, (LPVOID *)&markTweepReplyNotPossibleHook, (LPVOID *)&gameExeMarkTweepReplyNotPossibleReal));
   ASSERT_INIT(scanCreateEnableHook("game", "UpdateAchievements", (uintptr_t *)&gameExeUpdateAchievements, (LPVOID *)&updateAchievementsHook, (LPVOID *)&gameExeUpdateAchievementsReal));
+  ASSERT_INIT(scanCreateEnableHook("game", "sc3Eval", (uintptr_t *)&gameExeSc3Eval, (LPVOID *)&sc3EvalHook, (LPVOID *)&gameExeSc3EvalReal));
 
   if (!startServer(listenAddress) || !sendArChip3()) {
     return false;

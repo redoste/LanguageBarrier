@@ -20,14 +20,14 @@ HANDLE game2server = NULL, server2game = NULL;
     }                                                              \
   } while (0)
 
-#define CHECK_INIT_WIN32(message, condition) CONDITION(message, condition, fail_init, true, GetLastError())
-#define CHECK_INIT_ERR(message, condition, error) CONDITION(message, condition, fail_init, true, error)
-#define CHECK_INIT(message, condition) CONDITION(message, condition, fail_init, false, 0)
+#define CHECK_INIT_WIN32(message, condition) CONDITION(message, condition, failInit, true, GetLastError())
+#define CHECK_INIT_ERR(message, condition, error) CONDITION(message, condition, failInit, true, error)
+#define CHECK_INIT(message, condition) CONDITION(message, condition, failInit, false, 0)
 #define ASSERT_INIT(condition) CHECK_INIT(#condition, condition)
 
-#define CHECK_WIN32(message, condition) CONDITION(message, condition, fail_runtime, true, GetLastError())
-#define CHECK_ERR(message, condition, error) CONDITION(message, condition, fail_runtime, true, error)
-#define CHECK(message, condition) CONDITION(message, condition, fail_runtime, false, 0)
+#define CHECK_WIN32(message, condition) CONDITION(message, condition, failRuntime, true, GetLastError())
+#define CHECK_ERR(message, condition, error) CONDITION(message, condition, failRuntime, true, error)
+#define CHECK(message, condition) CONDITION(message, condition, failRuntime, false, 0)
 #define ASSERT(condition) CHECK(#condition, condition)
 
 static void fail(const wchar_t* messageBoxMessage, const char* logPrefix, const char* message, int line, bool withError, int error) {
@@ -40,11 +40,11 @@ static void fail(const wchar_t* messageBoxMessage, const char* logPrefix, const 
   MessageBox(NULL, messageBoxMessage, L"twipo-synchro", MB_ICONERROR);
 }
 
-static void fail_init(const char* message, int line, bool with_error, int error) {
+static void failInit(const char* message, int line, bool with_error, int error) {
   fail(L"Unable to start twipo-synchro.\nCheck LanguageBarrier log for more details.", "twipo-synchro start failed", message, line, with_error, error);
 }
 
-static void fail_runtime(const char *message, int line, bool with_error, int error) {
+static void failRuntime(const char *message, int line, bool with_error, int error) {
   fail(L"An error occured in twipo-synchro.\nCheck LanguageBarrier log for more details.", "twipo-synchro runtime fail", message, line, with_error, error);
   CloseHandle(game2server);
   CloseHandle(server2game);
@@ -229,7 +229,7 @@ void __cdecl addTweepHook(int tweepId) {
   }
 
   if (WaitForSingleObject(tweepMutex, INFINITE) != WAIT_OBJECT_0) {
-    fail_runtime("WaitForSingleObject addTweepHook", __LINE__, true, GetLastError());
+    failRuntime("WaitForSingleObject addTweepHook", __LINE__, true, GetLastError());
     gameExeAddTweepReal(tweepId);
     return;
   }
@@ -288,7 +288,7 @@ void __cdecl markTweepReplyPossibleHook(int tweepId) {
     return;
   }
   if (WaitForSingleObject(tweepMutex, INFINITE) != WAIT_OBJECT_0) {
-    fail_runtime("WaitForSingleObject markTweepReplyPossibleHook", __LINE__, true, GetLastError());
+    failRuntime("WaitForSingleObject markTweepReplyPossibleHook", __LINE__, true, GetLastError());
     gameExeMarkTweepReplyPossibleReal(tweepId);
     return;
   }
@@ -302,7 +302,7 @@ void __cdecl markTweepReplyNotPossibleHook(int tweepId) {
     return;
   }
   if (WaitForSingleObject(tweepMutex, INFINITE) != WAIT_OBJECT_0) {
-    fail_runtime("WaitForSingleObject markTweepReplyNotPossibleHook", __LINE__, true, GetLastError());
+    failRuntime("WaitForSingleObject markTweepReplyNotPossibleHook", __LINE__, true, GetLastError());
     gameExeMarkTweepReplyNotPossibleReal(tweepId);
     return;
   }
@@ -318,7 +318,7 @@ static const int ACHIEVEMENTS_TWEEPS = 8;
 void __cdecl updateAchievementsHook(int achievementType) {
   if (game2server && achievementType == ACHIEVEMENTS_TWEEPS) {
     if (WaitForSingleObject(tweepMutex, INFINITE) != WAIT_OBJECT_0) {
-      fail_runtime("WaitForSingleObject updateAchievementsHook", __LINE__, true, GetLastError());
+      failRuntime("WaitForSingleObject updateAchievementsHook", __LINE__, true, GetLastError());
     } else {
       sendSetReplyPossible(TwipoTweepsInTabs[gameExeScrWork[SW_TWIPOCURTAB]][gameExeScrWork[SW_TWIPOCURTW]].tweepId);
       ReleaseMutex(tweepMutex);
@@ -343,10 +343,10 @@ DWORD WINAPI replyThread(LPVOID lpParameter) {
     size_t read = 0;
     bool ret = true;
     while (ret && read < sizeof(message)) {
-      DWORD current_read = 0;
-      ret = ReadFile(server2game, ((uint8_t *)&message + read), sizeof(message) - read, &current_read, 0);
-      read += current_read;
-      ret &= current_read > 0;
+      DWORD currentRead = 0;
+      ret = ReadFile(server2game, ((uint8_t *)&message + read), sizeof(message) - read, &currentRead, 0);
+      read += currentRead;
+      ret &= currentRead > 0;
     }
     CHECK_WIN32("ReadFile replyThread", ret);
 
@@ -358,10 +358,10 @@ DWORD WINAPI replyThread(LPVOID lpParameter) {
 
     CHECK_WIN32("WaitForSingleObject replyThread", WaitForSingleObject(tweepMutex, INFINITE) == WAIT_OBJECT_0);
     gameExeAddTweepReal(replyTweepId);
-    bool no_error = sendAddTweep(replyTweepId);
+    bool noError = sendAddTweep(replyTweepId, gameExeScrWork[LR_DATE]);
 
     TwipoTweepCanBeReplied[message.tweepId] = 0;
-    if (no_error) {
+    if (noError) {
       sendSetReplyPossible(message.tweepId);
     }
     TwipoTweepRepliedForAchievements[message.tweepId] = 1;
